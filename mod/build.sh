@@ -76,9 +76,22 @@ case "${1:-}" in
         # Write steam_appid.txt so Steam doesn't redirect the launch back to the library install
         # via SteamAPI_RestartAppIfNecessary. 3430340 is the Dice A Million Steam app ID.
         echo -n "3430340" > "$COOP_DIR/steam_appid.txt"
-        if [[ ! -f "$COOP_DIR/dice_amillion_together.ini" ]]; then
-          printf '[relay]\nhost=%s\nport=%s\n' "$RELAY_HOST" "$RELAY_PORT" > "$COOP_DIR/dice_amillion_together.ini"
+        if [[ "$NETWORK_MODE" == "steam" ]]; then
+          # GameMaker uses localhost TCP, Steam handles Internet P2P.
+          RELAY_HOST="127.0.0.1"
+          RELAY_PORT=7777
+          command -v dotnet >/dev/null 2>&1 || { echo "Install .NET 10 SDK before building the Steam bridge." >&2; exit 2; }
+          echo "[build] publishing self-contained Windows Steam bridge"
+          dotnet publish "$ROOT/../src/DiceAMillionTogether.SteamBridge/DiceAMillionTogether.SteamBridge.csproj" \
+              -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true \
+              -o "$COOP_DIR/steam-bridge"
+          # Use the legally installed game's local Steam native runtime if needed.
+          if [[ ! -f "$COOP_DIR/steam-bridge/steam_api64.dll" && -f "$GAME_DIR/steam_api64.dll" ]]; then
+              cp "$GAME_DIR/steam_api64.dll" "$COOP_DIR/steam-bridge/steam_api64.dll"
+          fi
+          printf '3430340' > "$COOP_DIR/steam-bridge/steam_appid.txt"
         fi
+        printf '[relay]\\nhost=%s\\nport=%s\\n' "$RELAY_HOST" "$RELAY_PORT" > "$COOP_DIR/dice_amillion_together.ini"
         # Write a launcher .bat right next to the exe.
         # We set SteamAppId/SteamGameId so Steamworks' RestartAppIfNecessary doesn't
         # redirect the launch back to the Steam library install. Env var is more
