@@ -1,0 +1,21 @@
+name: .NET co-op checks
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+jobs:
+  dotnet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Check build script
+        run: bash -n mod/build.sh
+      - name: Build .NET relay and engine
+        run: dotnet build tests/DiceAMillionTogether.SmokeTests/DiceAMillionTogether.SmokeTests.csproj -c Release --nologo
+      - name: Run relay integration and cross-hand scoring tests
+        run: dotnet run --project tests/DiceAMillionTogether.SmokeTests/DiceAMillionTogether.SmokeTests.csproj -c Release --no-build
