@@ -4,6 +4,16 @@
 
 > This Steam bridge is a stacked PR on top of the working .NET co-op foundation. The bridge compiles against Facepunch.Steamworks and keeps the legacy GameMaker co-op UI and gameplay patches. **It has not yet been tested with two Steam accounts and the current commercial game binary.** The game publisher may not have enabled Steam lobby support for app 3430340. No Steam credentials are collected by this mod.
 
+## First: validate Steam capability without patching anything
+
+With Steam logged in to an account that owns Dice A Million, run this **before modifying the game**:
+
+```powershell
+dotnet run --project src/DiceAMillionTogether.SteamBridge -c Release -- --probe
+```
+
+It asks Steam to create a lobby for **AppID 3430340**, writes metadata and opens a Steam relay socket, then leaves the lobby. If this fails, Steam support may be disabled for this game, the native Steam runtime may be missing, or Steam API initialization may not be available to our companion process. These are real integration blockers—see the acceptance tests below. This probe is a local runtime check and cannot run from CI without Steam login.
+
 ## Fast path — two Windows Steam players
 
 Both players need an owned Steam copy of [Dice A Million](https://store.steampowered.com/app/3430340), the same game version, [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10), Git Bash, and [UndertaleModTool CLI](https://github.com/UnderminersTeam/UndertaleModTool) in `tools/utmt_cli/UndertaleModCli.exe`.
