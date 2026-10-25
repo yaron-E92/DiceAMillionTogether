@@ -1,0 +1,23 @@
+[Unit]
+Description=Multidice relay for Dice A Million co-op mod
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/multidice-relay/server.py
+WorkingDirectory=/opt/multidice-relay
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+# Light sandbox. We need to write sessions.log into /opt/multidice-relay,
+# so DynamicUser is off — relay runs as root but with filesystem restricted.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/multidice-relay
+
+[Install]
+WantedBy=multi-user.target
