@@ -1,0 +1,18 @@
+# Never commit proprietary Steam content or locally patched assets
+**/data.win
+**/data.win.*
+**/audiogroup*.dat
+**/dice a million.exe
+**/steam_api*.dll
+**/steam_appid.txt
+mod/build/
+mod/dist/
+DiceAMillionCoop/
+game/
+tools/
+*.zip
+*.log
+__pycache__/
+*.pyc
+.vscode/
+.idea/
