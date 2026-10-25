@@ -15,7 +15,7 @@ using UndertaleModLib.Compiler;
 
 EnsureDataLoaded();
 
-// Folder holding the mod GML sources. Hardcoded for automation.
+// Folder holding the mod GML sources. Resolved from CLI installation or cwd.
 string importFolder = Path.GetFullPath(Path.Combine(
     Path.GetDirectoryName(typeof(UndertaleModLib.UndertaleData).Assembly.Location) ?? ".",
     "..", "..", "mod", "gml"));
@@ -27,7 +27,7 @@ if (!Directory.Exists(importFolder))
 }
 if (!Directory.Exists(importFolder))
 {
-    importFolder = Path.GetFullPath(@"s:\serv\multidice\mod\gml");
+    importFolder = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "gml"));
 }
 if (!Directory.Exists(importFolder))
 {
