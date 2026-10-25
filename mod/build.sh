@@ -2,7 +2,7 @@
 # Build a patched data.win and optionally set up a side-by-side coop launch folder.
 # Usage:
 #   ./build.sh              # just build -> ./build/data.win.patched
-#   ./build.sh coop         # build + install into a sibling game folder with launcher
+#   ./build.sh coop         # install a side-by-side game copy + Windows Steam bridge
 #   ./build.sh install      # (DANGEROUS) overwrite the original game's data.win
 #   ./build.sh dist         # deliberately refused: patched game files are proprietary
 #
@@ -11,25 +11,28 @@
 #   GAME_DIR  — Steam install of Dice A Million (default: /c/Program Files (x86)/Steam/steamapps/common/Dice A Million)
 #   COOP_DIR  — where `coop` mode installs the side-by-side copy (default: $HOME/DiceAMillionCoop)
 #   UTMT_CLI  — path to UndertaleModCli.exe (default: ../tools/utmt_cli/UndertaleModCli.exe)
+#   NETWORK_MODE — steam (default) or relay (legacy private TCP mode)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 GAME_DIR="${GAME_DIR:-/c/Program Files (x86)/Steam/steamapps/common/Dice A Million}"
 COOP_DIR="${COOP_DIR:-$HOME/DiceAMillionCoop}"
 UTMT_CLI="${UTMT_CLI:-$ROOT/../tools/utmt_cli/UndertaleModCli.exe}"
+NETWORK_MODE="${NETWORK_MODE:-steam}"
+if [[ "$NETWORK_MODE" != "steam" && "$NETWORK_MODE" != "relay" ]]; then echo "NETWORK_MODE must be steam or relay" >&2; exit 2; fi
 RELAY_HOST="${RELAY_HOST:-127.0.0.1}"
 RELAY_PORT="${RELAY_PORT:-7777}"
 if [[ ! "$RELAY_PORT" =~ ^[0-9]+$ ]] || (( RELAY_PORT < 1 || RELAY_PORT > 65535 )); then
   echo "Invalid RELAY_PORT" >&2; exit 2
 fi
 if [[ ! -f "$UTMT_CLI" ]] && ! command -v "$UTMT_CLI" >/dev/null 2>&1; then echo "Missing UndertaleModCli.exe: $UTMT_CLI" >&2; exit 2; fi
-if [[ ! -f "$SRC_WIN" ]]; then echo "Missing Dice A Million data.win: $SRC_WIN" >&2; exit 2; fi
 # Prefer the pristine backup if one exists, so rebuilds always start from clean data.
 if [[ -f "$GAME_DIR/data.win.orig" ]]; then
     SRC_WIN="$GAME_DIR/data.win.orig"
 else
     SRC_WIN="$GAME_DIR/data.win"
 fi
+if [[ ! -f "$SRC_WIN" ]]; then echo "Missing Dice A Million data.win: $SRC_WIN" >&2; exit 2; fi
 OUT_WIN="$ROOT/build/data.win.patched"
 SCRIPT="$ROOT/patch.csx"
 
@@ -80,13 +83,31 @@ case "${1:-}" in
         # We set SteamAppId/SteamGameId so Steamworks' RestartAppIfNecessary doesn't
         # redirect the launch back to the Steam library install. Env var is more
         # reliable than steam_appid.txt, which can be cleaned up by AV or Steam itself.
-        cat > "$COOP_DIR/run_coop.bat" <<'EOF'
+        if [[ "$NETWORK_MODE" == "steam" ]]; then
+          cat > "$COOP_DIR/run_coop.bat" <<'EOF'
+@echo off
+cd /d "%~dp0"
+set SteamAppId=3430340
+set SteamGameId=3430340
+if not exist "%~dp0steam-bridge\DiceAMillionTogether.SteamBridge.exe" (
+  echo Steam bridge executable not found. Rebuild with NETWORK_MODE=steam.
+  pause
+  exit /b 1
+)
+start "DiceAMillionTogether Steam Bridge" /D "%~dp0steam-bridge" "%~dp0steam-bridge\DiceAMillionTogether.SteamBridge.exe"
+rem Give Steam API and localhost listener a chance to start.
+timeout /t 4 /nobreak >nul
+start "Dice A Million (Co-op)" "dice a million.exe"
+EOF
+        else
+          cat > "$COOP_DIR/run_coop.bat" <<'EOF'
 @echo off
 cd /d "%~dp0"
 set SteamAppId=3430340
 set SteamGameId=3430340
 start "Dice A Million (Co-op)" "dice a million.exe"
 EOF
+        fi
         # Convenience copy in the project root so the user doesn't have to hunt for the folder.
         cp "$COOP_DIR/run_coop.bat" "$ROOT/../run_coop.bat"
         echo "[build] coop installed to $COOP_DIR"

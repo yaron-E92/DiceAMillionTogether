@@ -9,5 +9,6 @@
   <ItemGroup>
     <ProjectReference Include="../../src/DiceAMillionTogether.Core/DiceAMillionTogether.Core.csproj" />
     <ProjectReference Include="../../src/DiceAMillionTogether.Relay/DiceAMillionTogether.Relay.csproj" />
+    <ProjectReference Include="../../src/DiceAMillionTogether.SteamBridge/DiceAMillionTogether.SteamBridge.csproj" />
   </ItemGroup>
 </Project>
