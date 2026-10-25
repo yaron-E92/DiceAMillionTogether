@@ -2,6 +2,7 @@
 
 Two *different* Windows PCs/accounts, both owning the Steam game, are required. Running this in GitHub Actions proves compilation only; the actual Steamworks configuration is controlled by the publisher.
 
+0. **Run Steam capability probe first**, from the repo root with Steam running: `dotnet run --project src/DiceAMillionTogether.SteamBridge -c Release -- --probe`. Check that lobby creation and SDR socket initialization both succeed. No GameMaker patch necessary for the probe.
 1. On each machine, check out `feat/steam-p2p-bridge` and install .NET 10 SDK, Git Bash and UndertaleModTool CLI. Confirm Steam is logged in.
 2. Run `GAME_DIR="..." NETWORK_MODE=steam ./mod/build.sh coop` on both clients, then run `~/DiceAMillionCoop/run_coop.bat`.
 3. Ensure a **Steam Bridge** console prints a logged-in Steam ID, and game main menu shows **CO-OP**.
