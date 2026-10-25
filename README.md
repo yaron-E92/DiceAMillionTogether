@@ -1,40 +1,76 @@
 # DiceAMillionTogether
 
-Experimental two-player co-op for [Dice A Million](https://store.steampowered.com/app/3430340). This is an adapted version of the MIT-licensed [Pildu/multidice](https://github.com/Pildu/multidice) co-op implementation, with configurable networking and safeguards.
+Unofficial two-player co-op mod for [Dice A Million](https://store.steampowered.com/app/3430340).
 
-**This is a source-build, not a ready-made download.** It uses the official Steam game files you already own. The game runs through Steam, but multiplayer currently uses a separate TCP relay rather than Steam networking. Cross-hand items (including the requested ×3 partner / ×0.5 self effect) are not implemented yet.
+**C#/.NET 10 is the application language.** The relay, connection/session handling and new owner-aware cross-hand scoring rules are in `src/`. GML is retained **only for the GameMaker game integration**, because we are patching a compiled GameMaker game rather than working from its source project. The existing game-side GML is imported from the MIT-licensed [Pildu/multidice](https://github.com/Pildu/multidice) project; removing those hooks without an alternative would break co-op.
 
-## Getting into a co-op game (Windows)
+## Current implementation
 
-1. Both players need an owned, same-version Steam installation of Dice A Million, Git Bash, and [UndertaleModTool CLI](https://github.com/UnderminersTeam/UndertaleModTool). Place `UndertaleModCli.exe` in `tools/utmt_cli/`.
-2. The host starts `python3 relay/server.py` on a private LAN or VPN (Python 3 standard library only). Allow **TCP 7777** between the two machines.
-3. Each player runs from Git Bash in this repo:
-   ```bash
-   GAME_DIR="/c/Program Files (x86)/Steam/steamapps/common/Dice A Million" RELAY_HOST="YOUR_PRIVATE_RELAY_IP" ./mod/build.sh coop
+- Existing mod: two-player CREATE ROOM / JOIN ROOM, individual character choice, synchronized rolling, peer dice, shared scoring and shop/map gates.
+- **New .NET 10 TCP relay**: replacement for the upstream Python server, compatible with its GameMaker wire protocol (uint32 little-endian frame length followed by UTF-8 JSON). Supports hosting/joining, lobby browser, disconnect notifications and forwarding.
+- **New .NET co-op effect core**: each die and cross-hand effect has an owner; Generous Die grants partner ×3 and own dice ×0.5. Tested for symmetry and stacking.
+- GameMaker `data.win` patches are built locally by UndertaleModTool (a C#-based GameMaker patching tool).
+
+**Important:** The effect core is not yet hooked into the game's item/shop/score systems. The co-op GameMaker code itself also needs a real Windows/Steam playtest against the currently installed game version. Native Steam friend invites/network transport are not yet present; the mod uses the running Steam game but a TCP relay for networking.
+
+## Build and run (Windows)
+
+Both players need a legitimate copy of Dice A Million on Steam (same version), Git Bash and the [UndertaleModTool CLI](https://github.com/UnderminersTeam/UndertaleModTool) as `tools/utmt_cli/UndertaleModCli.exe`. Install [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10) on the relay host. Set up a trusted private LAN/VPN for the relay.
+
+1. **Run the .NET relay** on one machine:
+
+   ```powershell
+   # Local-only is the default. For trusted LAN/VPN, set the private interface IP:
+   $env:DMT_BIND = "YOUR_PRIVATE_RELAY_IP"
+   $env:DMT_PORT = "7777"
+   dotnet run --project src/DiceAMillionTogether.Relay -c Release
    ```
-   Change `GAME_DIR` to the actual Steam library. The script creates a separate `~/DiceAMillionCoop` folder and preserves the original game installation.
-4. Both launch `~/DiceAMillionCoop/run_coop.bat` with Steam running.
-5. In the main menu choose **CO-OP**; first player **CREATE ROOM**, second **JOIN ROOM** with the six-character code. Pick separate characters and click READY.
 
-The relay is configured at runtime in `~/DiceAMillionCoop/dice_amillion_together.ini`:
-```ini
-[relay]
-host=127.0.0.1
-port=7777
+   Allow inbound TCP 7777 from only the other player's private/VPN address. **Do not publicly expose this unencrypted, unauthenticated TCP service.**
+
+2. **Patch each player's owned game** in Git Bash:
+
+   ```bash
+   GAME_DIR="/c/Program Files (x86)/Steam/steamapps/common/Dice A Million" \
+     RELAY_HOST="YOUR_PRIVATE_RELAY_IP" \
+     ./mod/build.sh coop
+   ```
+
+   Set `GAME_DIR` to the actual Steam library path. The script creates a side-by-side game folder at `~/DiceAMillionCoop` and does not alter the Steam installation.
+
+3. Open Steam, then run `~/DiceAMillionCoop/run_coop.bat`. One player chooses **CO-OP → CREATE ROOM**, the other **JOIN ROOM** with the code. Both select characters and READY.
+
+4. Runtime configuration is in `~/DiceAMillionCoop/dice_amillion_together.ini`; the host and port can be changed without re-patching:
+
+   ```ini
+   [relay]
+   host=127.0.0.1
+   port=7777
+   ```
+
+   For two PCs set the same reachable **private/VPN host** on both.
+
+## Run automated checks
+
+```bash
+dotnet build tests/DiceAMillionTogether.SmokeTests -c Release
+dotnet run --project tests/DiceAMillionTogether.SmokeTests -c Release --no-build
 ```
-Both players must use the same **reachable** relay address. Changing that INI should not require rebuilding.
 
-## Tests
+The tests start a live .NET relay on a random loopback port, open actual TCP sockets, assert v1 protocol behavior (including create/list/join, full rooms, frame forwarding, disconnect), and check C# cross-hand scoring. See [playtest checklist](docs/PLAYTEST.md) for tests that require the commercial game.
 
-Run the relay locally, then run `python3 relay/test_relay.py`. CI runs this plus Python syntax and Bash syntax checks. Game integration requires a Windows/Steam playtest and has **not** been validated in this environment. See [playtest checklist](docs/PLAYTEST.md).
+## Project structure
 
-## Limitations and safety
+- `src/DiceAMillionTogether.Core`: pure .NET owner-aware co-op rules and cross-hand score/effect model.
+- `src/DiceAMillionTogether.Relay`: actual multiplayer relay, now C#; no Python dependency.
+- `tests/DiceAMillionTogether.SmokeTests`: standalone .NET test runner (no third-party NuGet packages).
+- `mod/patch.csx`: C# build-time patch script using UndertaleModTool.
+- `mod/gml`: **legacy GameMaker adapter hooks** necessary to integrate the mod with the game's bytecode; work to further shrink this is still pending.
 
-- This is the existing experimental TCP-relay co-op implementation: individual character choices, peer dice, shared scoring, synced shop/roll/map gates; bugs and desyncs are possible.
-- Relay transport is unauthenticated and unencrypted: **use private LAN/VPN, not a public open TCP port**.
-- `./mod/build.sh coop` creates a side-by-side patched game copy; `install` overwrites Steam's `data.win` and is **not recommended**.
-- `dist` is deliberately disabled. No proprietary game executables or patched `data.win` are distributed by this repo.
-- Game updates may invalidate imported full-replacement GML scripts. Rebuild only from the version you own and test on a copy.
-- Native Steam lobbies, cross-hand items, reconnection and recovery remain future improvements.
+## Safety and limitations
 
-See [attribution](THIRD_PARTY_NOTICES.md).
+- The existing GameMaker patches are version-sensitive; patch compilation and two-client actual gameplay have not been verified against the current Steam game in this environment.
+- This is still a relay-based co-op prototype, **not Steam Networking or Steam friend invites**.
+- No compiled game executables or patched `data.win` are committed or distributed. The `dist` action refuses to package game assets.
+- Use `./mod/build.sh coop`, not `./mod/build.sh install`; the latter modifies the original game's `data.win`.
+- Test and report crashes/desyncs before merging. See [attribution](THIRD_PARTY_NOTICES.md).
