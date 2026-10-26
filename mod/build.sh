@@ -91,7 +91,7 @@ case "${1:-}" in
           fi
           printf '3430340' > "$COOP_DIR/steam-bridge/steam_appid.txt"
         fi
-        printf '[relay]\\nhost=%s\\nport=%s\\n' "$RELAY_HOST" "$RELAY_PORT" > "$COOP_DIR/dice_amillion_together.ini"
+        printf '[relay]\nhost=%s\nport=%s\n' "$RELAY_HOST" "$RELAY_PORT" > "$COOP_DIR/dice_amillion_together.ini"
         # Write a launcher .bat right next to the exe.
         # We set SteamAppId/SteamGameId so Steamworks' RestartAppIfNecessary doesn't
         # redirect the launch back to the Steam library install. Env var is more

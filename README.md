@@ -24,6 +24,27 @@ If the DLL load itself fails, the bridge now reports the missing or incompatible
 
 It asks Steam to create a lobby for **AppID 3430340**, writes metadata and opens a Steam relay socket, then leaves the lobby. If this fails, Steam support may be disabled for this game, the native Steam runtime may be missing, or Steam API initialization may not be available to our companion process. These are real integration blockers—see the acceptance tests below. This probe is a local runtime check and cannot run from CI without Steam login.
 
+## Next: real two-account Steam P2P test (without patching)
+
+The Steam capability probe has already passed: the installed game AppID can create Steam lobbies and open P2P listeners. Now verify a real peer connection **before installing the mod**.
+
+On the **host PC**:
+
+```powershell
+git fetch origin
+git switch feat/steam-p2p-bridge
+git pull --ff-only
+dotnet run --project src/DiceAMillionTogether.SteamBridge -c Release -- --smoke-host
+```
+
+On a **second PC**, logged in to a *different Steam account owning the game*, use the printed lobby code:
+
+```powershell
+dotnet run --project src/DiceAMillionTogether.SteamBridge -c Release -- --smoke-join ABC123
+```
+
+Replace `ABC123` with the real code. Both must print `STEAM P2P SMOKE: PASSED` if the Steam data path actually works. This sends real bidirectional Steam Networking Sockets messages in the same GameMaker framing, **without needing the game mod installed**. See [full Steam test plan](docs/STEAM-PLAYTEST.md).
+
 ## Fast path — two Windows Steam players
 
 Both players need an owned Steam copy of [Dice A Million](https://store.steampowered.com/app/3430340), the same game version, [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10), Git Bash, and [UndertaleModTool CLI](https://github.com/UnderminersTeam/UndertaleModTool) in `tools/utmt_cli/UndertaleModCli.exe`.

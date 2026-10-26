@@ -52,6 +52,38 @@ if (args.Contains("--probe", StringComparer.Ordinal))
     finally { if (SteamClient.IsValid) SteamClient.Shutdown(); }
 }
 
+// This runs a REAL Steam P2P session between two owned accounts, without
+// needing UndertaleModTool or a modified copy of Dice A Million.
+if (args.Length > 0 && (args[0] == "--smoke-host" || args[0] == "--smoke-join"))
+{
+    using var smokeStop = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; smokeStop.Cancel(); };
+    try
+    {
+        SteamNativePreflight.Verify();
+        using var bridge = new SteamBridgeServer(gameAppId);
+        Task serverTask = bridge.RunAsync(smokeStop.Token);
+        try
+        {
+            await SteamPeerSmoke.RunAsync(args, smokeStop.Token);
+            Console.WriteLine("STEAM P2P SMOKE: PASSED");
+            return 0;
+        }
+        finally
+        {
+            smokeStop.Cancel();
+            try { await serverTask; }
+            catch (OperationCanceledException) { }
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"STEAM P2P SMOKE FAILED: {ex.GetType().Name}: {ex.Message}");
+        Console.Error.WriteLine("This test requires a different logged-in Steam account on the other PC.");
+        return 3;
+    }
+}
+
 using var stopped = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; stopped.Cancel(); };
 try

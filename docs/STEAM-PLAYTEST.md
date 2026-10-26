@@ -1,8 +1,36 @@
+## Two-player Steam transport smoke test (no game patch needed)
+
+Your `--probe` result has already proved Steam initialization, lobby creation, metadata and P2P listener creation work for AppID 3430340.
+
+Before building the GameMaker mod, on two distinct Windows computers, each logged in to Steam with **different accounts that own Dice A Million**, run these commands from the repository root:
+
+**Host PC**
+```powershell
+git fetch origin
+git switch feat/steam-p2p-bridge
+git pull --ff-only
+dotnet run --project src/DiceAMillionTogether.SteamBridge -c Release -- --smoke-host
+```
+
+The host prints a six-character **LOBBY CODE**. Keep the command running.
+
+**Guest PC** (replace `ABC123` with the actual code):
+```powershell
+git fetch origin
+git switch feat/steam-p2p-bridge
+git pull --ff-only
+dotnet run --project src/DiceAMillionTogether.SteamBridge -c Release -- --smoke-join ABC123
+```
+
+Both consoles must report `STEAM P2P SMOKE: PASSED`. This verifies the real Internet Steam lobby lookup, peer connection and bidirectional reliable GameMaker-format messages. The diagnostic launches the local bridge itself and connects a synthetic game client to localhost; no game patch, relay, VPN, public port, or UndertaleModTool is needed.
+
+If a connection fails, share console output from **both** PCs with Steam IDs and private details redacted. Once this passes, continue with the full game test below.
+
 # Steam multiplayer acceptance test
 
 Two *different* Windows PCs/accounts, both owning the Steam game, are required. Running this in GitHub Actions proves compilation only; the actual Steamworks configuration is controlled by the publisher.
 
-0. **Update the feature branch and run Steam capability probe first**, from the repo root with Steam running: `dotnet run --project src/DiceAMillionTogether.SteamBridge -c Release -- --probe`. Check that lobby creation and SDR socket initialization both succeed. No GameMaker patch necessary for the probe. The native `steam_api64.dll` is automatically staged by the `Facepunch.Steamworks.Library` package. If the probe reports a missing DLL, first run `dotnet restore src/DiceAMillionTogether.SteamBridge` and `dotnet build src/DiceAMillionTogether.SteamBridge -c Release` and inspect whether `src/DiceAMillionTogether.SteamBridge/bin/Release/net10.0/steam_api64.dll` exists; do not diagnose that as a publisher restriction.
+0. **The Steam capability probe has passed on the first PC**. Optionally repeat on the second PC, from the repo root with Steam running: `dotnet run --project src/DiceAMillionTogether.SteamBridge -c Release -- --probe`. Check that lobby creation and SDR socket initialization both succeed. No GameMaker patch necessary for the probe. The native `steam_api64.dll` is automatically staged by the `Facepunch.Steamworks.Library` package. If the probe reports a missing DLL, first run `dotnet restore src/DiceAMillionTogether.SteamBridge` and `dotnet build src/DiceAMillionTogether.SteamBridge -c Release` and inspect whether `src/DiceAMillionTogether.SteamBridge/bin/Release/net10.0/steam_api64.dll` exists; do not diagnose that as a publisher restriction.
 1. On each machine, check out `feat/steam-p2p-bridge` and install .NET 10 SDK, Git Bash and UndertaleModTool CLI. Confirm Steam is logged in.
 2. Run `GAME_DIR="..." NETWORK_MODE=steam ./mod/build.sh coop` on both clients, then run `~/DiceAMillionCoop/run_coop.bat`.
 3. Ensure a **Steam Bridge** console prints a logged-in Steam ID, and game main menu shows **CO-OP**.
