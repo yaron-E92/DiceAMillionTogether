@@ -26,6 +26,12 @@ public sealed class SteamBridgeServer(uint gameAppId) : IDisposable
     private Connection? _hostPeerConnection;
     private bool _connected;
     private TaskCompletionSource<bool>? _guestConnected;
+    // Steam connection callbacks may precede the lobby member roster update.
+    // Never trust an unverified Steam socket: wait for roster authorization.
+    private Connection? _pendingHostPeer;
+    private SteamId _pendingHostIdentity;
+    private DateTime _pendingHostDeadline;
+    private readonly HashSet<SteamId> _joinedLobbyMembers = new();
 
     public async Task RunAsync(CancellationToken cancellation)
     {
@@ -35,6 +41,8 @@ public sealed class SteamBridgeServer(uint gameAppId) : IDisposable
         if (!SteamClient.IsLoggedOn)
             throw new InvalidOperationException("Steam client is not logged on.");
 
+        SteamMatchmaking.OnLobbyMemberJoined += HandleLobbyMemberJoined;
+        SteamMatchmaking.OnLobbyMemberLeave += HandleLobbyMemberLeave;
         _local.Start();
         Console.WriteLine($"Steam P2P bridge ready for {SteamClient.Name} ({SteamClient.SteamId})");
         Console.WriteLine("Listening on 127.0.0.1:7777. No router port forward or relay server needed.");
@@ -73,6 +81,7 @@ public sealed class SteamBridgeServer(uint gameAppId) : IDisposable
             SteamClient.RunCallbacks();
             _hostSocket?.Receive();
             _guestConnection?.Receive();
+            CheckPendingHostPeer();
             await Task.Delay(16, cancellation);
         }
     }
@@ -176,6 +185,7 @@ public sealed class SteamBridgeServer(uint gameAppId) : IDisposable
         }
 
         _lobby = created.Value;
+        _joinedLobbyMembers.Clear();
         string code = NewCode();
         _hostSocket = SteamNetworkingSockets.CreateRelaySocket<HostSocket>();
         _hostSocket.Bridge = this;
@@ -221,6 +231,7 @@ public sealed class SteamBridgeServer(uint gameAppId) : IDisposable
             return;
         }
         _lobby = joined;
+        Console.WriteLine("Steam lobby join succeeded; attempting reliable P2P connection to lobby owner.");
         _guestConnected = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _guestConnection = SteamNetworkingSockets.ConnectRelay<GuestConnection>(_lobby.Value.Owner.Id);
         _guestConnection.Bridge = this;
@@ -232,31 +243,117 @@ public sealed class SteamBridgeServer(uint gameAppId) : IDisposable
     private bool IsLobbyGuest(SteamId id)
     {
         var lobby = _lobby;
-        if (lobby is null || lobby.Value.Owner.Id != SteamClient.SteamId)
+        if (lobby is null || lobby.Value.Owner.Id != SteamClient.SteamId || id == SteamClient.SteamId)
             return false;
-        return lobby.Value.Members.Any(friend => friend.Id == id && friend.Id != SteamClient.SteamId);
+        // OnLobbyMemberJoined is fired while the remote member is joining,
+        // whereas Lobby.Members can take another callback tick to update.
+        return _joinedLobbyMembers.Contains(id)
+            || lobby.Value.Members.Any(friend => friend.Id == id);
     }
 
-    private void OnHostConnected(Connection connection)
+    private void HandleLobbyMemberJoined(Lobby lobby, Friend member)
     {
-        _hostPeerConnection = connection;
-        _connected = true;
-        _game?.Send(new { type = "PEER_JOINED" });
-        Console.WriteLine("Steam P2P guest connected.");
+        if (_lobby is not { } own || own.Id != lobby.Id || member.Id == SteamClient.SteamId)
+            return;
+        _joinedLobbyMembers.Add(member.Id);
+        Console.WriteLine("Steam lobby member joined; P2P identity can now be authorized.");
+        CheckPendingHostPeer();
+    }
+
+    private void HandleLobbyMemberLeave(Lobby lobby, Friend member)
+    {
+        if (_lobby is not { } own || own.Id != lobby.Id)
+            return;
+        _joinedLobbyMembers.Remove(member.Id);
+        Console.WriteLine("Steam lobby member left.");
+    }
+
+    private void OnHostConnecting(Connection connection, ConnectionInfo info)
+    {
+        if (_lobby is not { } lobby || lobby.Owner.Id != SteamClient.SteamId
+            || _hostPeerConnection is not null || _pendingHostPeer is not null)
+        {
+            Console.Error.WriteLine("Steam P2P host rejected unexpected connection (no available lobby slot).");
+            connection.Close();
+            return;
+        }
+
+        // NetIdentity can be unknown while Steam establishes an inbound
+        // connection. Steam's documented OnConnecting deadline is short.
+        // Accept the transport handshake, but do NOT expose the connection
+        // to the game until an authenticated lobby member is confirmed.
+        Result accepted = connection.Accept();
+        Console.WriteLine($"Steam P2P incoming connection: accepted transport={accepted}, identity_known={info.Identity.IsSteamId}.");
+        if (accepted != Result.OK)
+            connection.Close();
+    }
+
+    private void OnHostTransportConnected(Connection connection, ConnectionInfo info)
+    {
+        if (_hostPeerConnection is not null || _pendingHostPeer is not null)
+        {
+            connection.Close();
+            return;
+        }
+        _pendingHostPeer = connection;
+        _pendingHostIdentity = info.Identity.IsSteamId ? info.Identity.SteamId : default;
+        _pendingHostDeadline = DateTime.UtcNow.AddSeconds(12);
+        Console.WriteLine($"Steam P2P transport connected; verifying lobby membership (identity_known={info.Identity.IsSteamId}).");
+        CheckPendingHostPeer();
+    }
+
+    private void CheckPendingHostPeer()
+    {
+        if (_pendingHostPeer is not { } connection)
+            return;
+
+        // Steam should know remote identity once connected. If it isn't in
+        // ConnectionInfo yet, request the current state from the socket manager
+        // on the next callback (see OnConnected's identity snapshot).
+        if (_pendingHostIdentity.IsValid && IsLobbyGuest(_pendingHostIdentity))
+        {
+            _pendingHostPeer = null;
+            _hostPeerConnection = connection;
+            _connected = true;
+            _game?.Send(new { type = "PEER_JOINED" });
+            Console.WriteLine("PASS: Steam P2P peer authenticated against the lobby; game notified PEER_JOINED.");
+            return;
+        }
+        if (DateTime.UtcNow < _pendingHostDeadline)
+            return;
+
+        Console.Error.WriteLine("Steam P2P authorization timed out: remote identity absent from lobby roster.");
+        _pendingHostPeer = null;
+        connection.Close(false, 4001, "Steam ID was not confirmed in the current lobby");
     }
 
     private void OnGuestConnected()
     {
         _connected = true;
         _guestConnected?.TrySetResult(true);
-        Console.WriteLine("Steam P2P host connected.");
+        Console.WriteLine("Steam P2P transport connected to host.");
     }
 
-    private void OnSteamDisconnected()
+    private void OnSteamDisconnected(Connection? connection, ConnectionInfo info, bool isHost)
     {
+        Console.Error.WriteLine($"Steam P2P disconnected: side={(isHost ? "host" : "guest")}, state={info.State}, reason={info.EndReason}, identity_known={info.Identity.IsSteamId}.");
+        if (isHost && connection is { } hostConn)
+        {
+            if (_pendingHostPeer is { } pending && pending.Id == hostConn.Id)
+                _pendingHostPeer = null;
+
+            if (_hostPeerConnection is not { } active || active.Id != hostConn.Id)
+                return; // A rejected/failed handshake was never a game peer.
+            _hostPeerConnection = null;
+        }
+
+        bool wasConnected = _connected;
         _connected = false;
-        _guestConnected?.TrySetException(new IOException("Steam P2P peer disconnected."));
-        _game?.Send(new { type = "PEER_LEFT" });
+        if (!isHost)
+            _guestConnected?.TrySetException(
+                new IOException($"Steam P2P connection closed: {info.State}, {info.EndReason}. Check both bridge consoles."));
+        if (wasConnected)
+            _game?.Send(new { type = "PEER_LEFT" });
     }
 
     private void SendSteam(byte[] payload)
@@ -286,6 +383,9 @@ public sealed class SteamBridgeServer(uint gameAppId) : IDisposable
     private void ResetSteamSession()
     {
         _connected = false;
+        _pendingHostPeer?.Close();
+        _pendingHostPeer = null;
+        _joinedLobbyMembers.Clear();
         _guestConnected?.TrySetCanceled();
         _guestConnected = null;
         _hostPeerConnection = null;
@@ -299,6 +399,8 @@ public sealed class SteamBridgeServer(uint gameAppId) : IDisposable
 
     public void Dispose()
     {
+        SteamMatchmaking.OnLobbyMemberJoined -= HandleLobbyMemberJoined;
+        SteamMatchmaking.OnLobbyMemberLeave -= HandleLobbyMemberLeave;
         _stop.Cancel();
         _local.Stop();
         _game?.Close();
@@ -313,22 +415,19 @@ public sealed class SteamBridgeServer(uint gameAppId) : IDisposable
         public SteamBridgeServer? Bridge;
         public override void OnConnecting(Connection connection, ConnectionInfo info)
         {
-            if (Bridge is not null && info.Identity.IsSteamId && Bridge.IsLobbyGuest(info.Identity.SteamId))
-                connection.Accept();
-            else
-                connection.Close();
+            Bridge?.OnHostConnecting(connection, info);
         }
 
         public override void OnConnected(Connection connection, ConnectionInfo info)
         {
             base.OnConnected(connection, info);
-            Bridge?.OnHostConnected(connection);
+            Bridge?.OnHostTransportConnected(connection, info);
         }
 
         public override void OnDisconnected(Connection connection, ConnectionInfo info)
         {
             base.OnDisconnected(connection, info);
-            Bridge?.OnSteamDisconnected();
+            Bridge?.OnSteamDisconnected(connection, info, isHost: true);
         }
 
         public override void OnMessage(Connection connection, NetIdentity identity,
@@ -348,7 +447,7 @@ public sealed class SteamBridgeServer(uint gameAppId) : IDisposable
         public override void OnDisconnected(ConnectionInfo info)
         {
             base.OnDisconnected(info);
-            Bridge?.OnSteamDisconnected();
+            Bridge?.OnSteamDisconnected(null, info, isHost: false);
         }
 
         public override void OnMessage(IntPtr data, int size, long messageNum, long recvTime, int channel)
