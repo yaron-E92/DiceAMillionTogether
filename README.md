@@ -6,11 +6,21 @@
 
 ## First: validate Steam capability without patching anything
 
-With Steam logged in to an account that owns Dice A Million, run this **before modifying the game**:
+With Steam logged in to an account that owns Dice A Million, update your branch and run the probe **before modifying the game**:
+
+```powershell
+git fetch origin
+git switch feat/steam-p2p-bridge
+git pull --ff-only
+```
+
+The bridge now restores `Facepunch.Steamworks.Library` and stages the matching `steam_api64.dll` automatically into the `dotnet run` output and published Windows release. **Do not download random DLLs or manually copy Steam files.**
 
 ```powershell
 dotnet run --project src/DiceAMillionTogether.SteamBridge -c Release -- --probe
 ```
+
+If the DLL load itself fails, the bridge now reports the missing or incompatible native dependency **before** attempting the Steam capability check; this is not evidence that the game publisher blocked multiplayer.
 
 It asks Steam to create a lobby for **AppID 3430340**, writes metadata and opens a Steam relay socket, then leaves the lobby. If this fails, Steam support may be disabled for this game, the native Steam runtime may be missing, or Steam API initialization may not be available to our companion process. These are real integration blockers—see the acceptance tests below. This probe is a local runtime check and cannot run from CI without Steam login.
 

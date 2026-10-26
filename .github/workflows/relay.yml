@@ -19,6 +19,14 @@ jobs:
         run: dotnet build tests/DiceAMillionTogether.SmokeTests/DiceAMillionTogether.SmokeTests.csproj -c Release --nologo
       - name: Build Steam bridge (real Steamworks API)
         run: dotnet build src/DiceAMillionTogether.SteamBridge/DiceAMillionTogether.SteamBridge.csproj -c Release --nologo
+      - name: Verify dotnet run output has native Steam API
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s src/DiceAMillionTogether.SteamBridge/bin/Release/net10.0/steam_api64.dll || {
+            echo "::error::Native Steam API DLL missing from dotnet run output"
+            exit 1
+          }
       - name: Package Windows Steam bridge
         run: dotnet publish src/DiceAMillionTogether.SteamBridge/DiceAMillionTogether.SteamBridge.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o steam-bridge-dist
       - name: Verify native Steamworks DLL is packaged
