@@ -35,22 +35,9 @@ public static class SteamPeerSmoke
         using var tcp = new TcpClient();
         using var connectLimit = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         connectLimit.CancelAfter(ConnectTimeout);
-
-        // The real Steam bridge starts Steamworks before opening localhost.
-        // Avoid a fixed blind sleep: retry until its listener is actually live.
-        var start = DateTime.UtcNow;
-        while (!tcp.Connected)
-        {
-            connectLimit.Token.ThrowIfCancellationRequested();
-            try
-            {
-                await tcp.ConnectAsync(IPAddress.Loopback, 7777, connectLimit.Token);
-            }
-            catch (SocketException) when ((DateTime.UtcNow - start) < ConnectTimeout)
-            {
-                await Task.Delay(200, connectLimit.Token);
-            }
-        }
+        // SteamBridgeServer.RunAsync binds its localhost listener synchronously
+        // before yielding; no retry-on-a-failed-TcpClient socket is needed.
+        await tcp.ConnectAsync(IPAddress.Loopback, 7777, connectLimit.Token);
 
         var stream = tcp.GetStream();
         await SendAsync(stream, new
@@ -89,7 +76,14 @@ public static class SteamPeerSmoke
             ExpectValue(ack, "from", "guest");
             Console.WriteLine("PASS: guest received host payload and returned an authenticated Steam P2P response.");
             await SendAsync(stream, new { type = "DMT_SMOKE_DONE", marker = Marker, from = "host" }, cancellation);
+            using var finalAck = await ReceiveAsync(stream, MessageTimeout, cancellation);
+            ExpectValue(finalAck, "type", "DMT_SMOKE_DONE_ACK");
+            ExpectValue(finalAck, "marker", Marker);
             Console.WriteLine("PASS: host-to-guest and guest-to-host reliable Steam messages completed.");
+            // Keep the Steam socket alive long enough for the remote side to
+            // receive a confirmed completion before the local game socket closes.
+            await SendAsync(stream, new { type = "DMT_SMOKE_COMPLETE", marker = Marker }, cancellation);
+            await Task.Delay(500, cancellation);
         }
         else
         {
@@ -103,6 +97,10 @@ public static class SteamPeerSmoke
             using var done = await ReceiveAsync(stream, MessageTimeout, cancellation);
             ExpectValue(done, "type", "DMT_SMOKE_DONE");
             ExpectValue(done, "marker", Marker);
+            await SendAsync(stream, new { type = "DMT_SMOKE_DONE_ACK", marker = Marker, from = "guest" }, cancellation);
+            using var complete = await ReceiveAsync(stream, MessageTimeout, cancellation);
+            ExpectValue(complete, "DMT_SMOKE_COMPLETE");
+            ExpectValue(complete, "marker", Marker);
             Console.WriteLine("PASS: reply reached Steam host and confirmation returned.");
         }
     }
