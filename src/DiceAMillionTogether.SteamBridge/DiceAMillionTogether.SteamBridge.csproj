@@ -9,7 +9,24 @@
   <ItemGroup>
     <PackageReference Include="Facepunch.Steamworks" Version="2.3.3" />
     <!-- Supplies native Steam API DLLs; managed Facepunch alone does not. -->
-    <PackageReference Include="Facepunch.Steamworks.Library" Version="2.3.3" />
+    <PackageReference Include="Facepunch.Steamworks.Library" Version="2.3.3" GeneratePathProperty="true" />
     <ProjectReference Include="../DiceAMillionTogether.Core/DiceAMillionTogether.Core.csproj" />
   </ItemGroup>
+  <!-- The Facepunch managed package does not install the native Steam API into
+       a plain .NET app by itself. Stage the MATCHING redistributable for both
+       dotnet run (Build output) and the win-x64 Publish output. -->
+  <Target Name="StageSteamApiAfterBuild" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
+    <ItemGroup>
+      <_SteamNativeDll Include="$(PkgFacepunch_Steamworks_Library)/**/steam_api64.dll" />
+    </ItemGroup>
+    <Error Condition="'@(_SteamNativeDll)' == ''" Text="No steam_api64.dll found in Facepunch.Steamworks.Library 2.3.3. Check NuGet restore/package contents." />
+    <Copy SourceFiles="@(_SteamNativeDll)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="StageSteamApiAfterPublish" AfterTargets="Publish" Condition="'$(DesignTimeBuild)' != 'true'">
+    <ItemGroup>
+      <_SteamNativeDll Include="$(PkgFacepunch_Steamworks_Library)/**/steam_api64.dll" />
+    </ItemGroup>
+    <Error Condition="'@(_SteamNativeDll)' == ''" Text="steam_api64.dll is missing from Facepunch.Steamworks.Library 2.3.3." />
+    <Copy SourceFiles="@(_SteamNativeDll)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

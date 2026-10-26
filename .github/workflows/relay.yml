@@ -21,6 +21,17 @@ jobs:
         run: dotnet build src/DiceAMillionTogether.SteamBridge/DiceAMillionTogether.SteamBridge.csproj -c Release --nologo
       - name: Package Windows Steam bridge
         run: dotnet publish src/DiceAMillionTogether.SteamBridge/DiceAMillionTogether.SteamBridge.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o steam-bridge-dist
+      - name: Verify native Steamworks DLL is packaged
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Published files:"
+          ls -la steam-bridge-dist/
+          test -s steam-bridge-dist/steam_api64.dll || {
+            echo "::error::steam_api64.dll not found in Steam bridge release output"
+            find ~/.nuget/packages/facepunch.steamworks.library -iname '*steam*' -type f || true
+            exit 1
+          }
       - name: Run relay integration and cross-hand scoring tests
         run: dotnet run --project tests/DiceAMillionTogether.SmokeTests/DiceAMillionTogether.SmokeTests.csproj -c Release --no-build
       - name: Upload Windows Steam bridge (no game files)

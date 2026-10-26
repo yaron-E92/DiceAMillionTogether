@@ -1,5 +1,6 @@
 using DiceAMillionTogether.SteamBridge;
 using Steamworks;
+using System.Runtime.InteropServices;
 
 const uint gameAppId = 3430340;
 
@@ -9,6 +10,7 @@ if (args.Contains("--probe", StringComparer.Ordinal))
     // GameMaker patcher or trying a full two-client session.
     try
     {
+        SteamNativePreflight.Verify();
         SteamClient.Init(gameAppId, asyncCallbacks: false);
         if (!SteamClient.IsLoggedOn)
             throw new InvalidOperationException("Steam API initialized, but account is not logged on.");
@@ -44,7 +46,7 @@ if (args.Contains("--probe", StringComparer.Ordinal))
     catch (Exception ex)
     {
         Console.Error.WriteLine($"STEAM CAPABILITY PROBE FAILED: {ex.GetType().Name}: {ex.Message}");
-        Console.Error.WriteLine("No game files were modified. A publisher-disabled Steamworks capability cannot be bypassed.");
+        Console.Error.WriteLine("No game files were modified. This failure does not establish that the publisher disabled Steam multiplayer.");
         return 2;
     }
     finally { if (SteamClient.IsValid) SteamClient.Shutdown(); }
@@ -54,6 +56,7 @@ using var stopped = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; stopped.Cancel(); };
 try
 {
+    SteamNativePreflight.Verify();
     using var server = new SteamBridgeServer(gameAppId);
     await server.RunAsync(stopped.Token);
     return 0;
@@ -61,7 +64,7 @@ try
 catch (Exception ex)
 {
     Console.Error.WriteLine($"STEAM BRIDGE FAILED: {ex}");
-    Console.Error.WriteLine("Steam must be running, with a logged-in account owning Dice A Million.");
+    Console.Error.WriteLine("Verify the native DLLs and Steam installation before diagnosing multiplayer support.");
     Console.Error.WriteLine("This game may not enable Steam matchmaking for external mods.");
     return 1;
 }
