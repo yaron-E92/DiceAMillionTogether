@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 using DiceAMillionTogether.Core;
 using DiceAMillionTogether.Relay;
+using DiceAMillionTogether.SteamBridge;
 
 static void Check(bool expression, string label)
 {
@@ -132,4 +133,16 @@ await Send(checkGone, new { type = "HELLO", proto = 1, mod = "test", mode = "joi
 using (var response = await Receive(checkGone))
     Check(Get(response, "msg") == "room not found", "Disconnected room cleaned up");
 
-Console.WriteLine("All .NET integration and scoring checks passed.");
+
+// GameMaker-to-sidecar framing (no Steam client required for this test).
+var frameBytes = GameFrame.Json(new { type = "ROLL_COMMIT", owner = "host", dice = new[] { "test" } });
+using var wire = new MemoryStream();
+await GameFrame.WriteAsync(wire, frameBytes, CancellationToken.None);
+wire.Position = 0;
+var readBack = await GameFrame.ReadAsync(wire, CancellationToken.None);
+using (var parsed = GameFrame.Parse(readBack))
+    Check(parsed.RootElement.GetProperty("type").GetString() == "ROLL_COMMIT",
+        "Steam bridge preserves GameMaker JSON frame protocol");
+Check(readBack.SequenceEqual(frameBytes), "Steam bridge framing round trip preserves payload bytes");
+
+Console.WriteLine("All .NET integration, Steam framing and scoring checks passed.");
