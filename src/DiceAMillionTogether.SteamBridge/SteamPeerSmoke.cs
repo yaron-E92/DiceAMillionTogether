@@ -99,7 +99,7 @@ public static class SteamPeerSmoke
             ExpectValue(done, "marker", Marker);
             await SendAsync(stream, new { type = "DMT_SMOKE_DONE_ACK", marker = Marker, from = "guest" }, cancellation);
             using var complete = await ReceiveAsync(stream, MessageTimeout, cancellation);
-            ExpectValue(complete, "DMT_SMOKE_COMPLETE");
+            Expect(complete, "DMT_SMOKE_COMPLETE");
             ExpectValue(complete, "marker", Marker);
             Console.WriteLine("PASS: reply reached Steam host and confirmation returned.");
         }
